@@ -1,0 +1,276 @@
+﻿Build1=Default,com.thcplusplus.bluechat
+File1=frmMain.bal
+FileGroup1=Default Group
+Group=Default Group
+IconFile=
+Library1=core
+Library2=serial
+Library3=sql
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="15" android:targetSdkVersion="26"/>~\n~<uses-permission android:name="android.permissions.BLUETOOTH" />~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~SetManifestAttribute(package, "com.thcplusplus.bluechat")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~'End of default text.~\n~
+Module1=Starter
+Module2=Texts
+Module3=Commands
+NumberOfFiles=1
+NumberOfLibraries=3
+NumberOfModules=3
+Version=9.01
+@EndOfDesignText@
+#Region  Project Attributes 
+	#ApplicationLabel: BlueChat
+	#VersionCode: 1
+	#VersionName: 
+	'SupportedOrientations possible values: unspecified, landscape or portrait.
+	#SupportedOrientations: portrait
+	#CanInstallToExternalStorage: False
+#End Region
+
+#Region  Activity Attributes 
+	#FullScreen: False
+	#IncludeTitle: True
+#End Region
+
+Sub Process_Globals
+	Dim btHandler As Serial
+	Dim appTimer As Timer
+	Dim sqlite As SQL
+	
+	Dim DB_NAME As String: DB_NAME = "messages.db"
+	Dim DB_TBL_NAME As String : DB_TBL_NAME = "messages"
+	Dim DB_COL_NAME As String : DB_COL_NAME = "personname"
+	Dim DB_COL_MSG As String: DB_COL_MSG = "messagetext"
+	
+End Sub
+
+Sub Globals
+	Private lstMessages As ListView
+	Private txtMessage As EditText
+	Private btnSend As Button
+	Dim lblListFirst As Label
+	Dim lblListSecond As Label
+	Dim btConnected As Boolean
+	Dim txtReader As TextReader, txtWriter As TextWriter
+End Sub
+
+ 
+
+Private Sub TryToConnect
+	If btHandler.IsEnabled = False Then
+		Msgbox(Texts.GetString(Texts.TurnOnBluetoothDescription ), Texts.GetString(Texts.TurnOnBluetoothTitle ))
+	Else
+		btHandler.Listen
+		
+		If btConnected = False Then
+			Dim mapDevices As Map , lstDevices As List
+			lstDevices.Initialize
+			mapDevices.Initialize
+			mapDevices = btHandler.GetPairedDevices
+			
+			Dim i As Int
+			For i = 0 To mapDevices.Size-1
+				lstDevices.Add( mapDevices.GetKeyAt(i) )
+			Next
+			
+			Dim deviceSelectResult As Int : deviceSelectResult = -1
+			deviceSelectResult = InputList(lstDevices, Texts.GetString(Texts.SelectDeviceTitle ) , -1)
+			If deviceSelectResult >= 0 Then
+				btHandler.Connect( mapDevices.Get( lstDevices.Get(deviceSelectResult) ))
+			Else
+				btConnected = False
+				appTimer.Enabled = False
+				ToastMessageShow( Texts.GetString(Texts.SelectDeviceDescription) ,True)
+			End If
+		End If
+	End If
+End Sub
+
+Private Sub DisconnectFriend
+	btHandler.Disconnect
+	btConnected = False
+	appTimer.Enabled = False
+	txtReader.Close
+	txtWriter.Close
+	
+	ToastMessageShow( Texts.GetString(Texts.DisconnectedReport ) ,True)
+End Sub
+
+Private Sub ShowLanguagesList
+	Dim lstLanguages As List
+	lstLanguages.Initialize
+	Dim defaultChoice As Int = -1
+	If Texts.AppLanguage = Texts.English Then
+		defaultChoice = 0
+	Else if Texts.AppLanguage = Texts.Persian Then
+		defaultChoice = 1
+	End If
+	lstLanguages.Add(Texts.GetString(Texts.English))
+	lstLanguages.Add(Texts.GetString(Texts.Persian))
+	Dim userLanguageChoice As Int = InputList(lstLanguages,  Texts.GetString(Texts.SelectLanguage) , defaultChoice)
+	If userLanguageChoice >= Texts.English And userLanguageChoice <= Texts.Persian Then Texts.AppLanguage = userLanguageChoice
+End Sub
+
+Private Sub LoadPreviousMsgs
+	ToastMessageShow(Texts.GetString(Texts.PreviousMessageLoadingStartedReport), False)
+	Try
+		Dim messages As Cursor, i As Int
+		
+		messages = sqlite.ExecQuery("select * from " & DB_TBL_NAME)
+
+		For i = 0 To messages.RowCount-1
+			messages.Position = i
+			lstMessages.AddTwoLines( Texts.StrTab & messages.GetString(DB_COL_MSG),Texts.StrTab & messages.GetString(DB_COL_NAME) )
+		Next
+		messages.Close
+	Catch
+		ToastMessageShow(Texts.GetString(Texts.PreviousMessagesLoadingFailedError) , True )
+	End Try
+	ToastMessageShow(Texts.GetString(Texts.PreviousMessageLoadedReport), False )
+End Sub
+
+Private Sub CheckTextIsCommand(text As String) As Boolean
+	Dim textArray() As String = Regex.Split(" ",text)
+	If textArray(0) = Commands.StartSign Then
+		Select textArray(1)
+			Case Commands.SetFriendName
+				If textArray(2) = Commands.ParamaterStartSign Then
+					Try
+						Texts.FriendName = textArray(3)
+						ToastMessageShow(Texts.GetString(Texts.FriendNameChangedReport), True)
+						Return True
+					Catch
+						ToastMessageShow(Texts.GetString(Texts.NameChangeFailedError),True)
+						Return False
+					End Try
+				End If
+				
+			Case Commands.SetAppLanguage
+				If textArray.Length = 2 Then
+					ShowLanguagesList
+				Else If textArray.Length = 4 And textArray(2) = Commands.ParamaterStartSign Then
+					If textArray(3) = Commands.ParamEnglishLanguage Then
+						Texts.AppLanguage = Texts.English
+						ToastMessageShow(Texts.GetString(Texts.AppLanguageReport), False)
+						
+					Else If textArray(3) = Commands.ParamPersianLanguage Then
+						Texts.AppLanguage = Texts.Persian
+						ToastMessageShow(Texts.GetString(Texts.AppLanguageReport), False)
+						
+					End If
+				End If
+		End Select
+	End If
+	Return False
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	
+	'add code to find last language
+	Activity.LoadLayout("frmMain")
+	lstMessages.Padding = Array As Int(10,10,10,10)
+	lblListFirst = lstMessages.TwoLinesLayout.Label
+	lblListSecond = lstMessages.TwoLinesLayout.SecondLabel
+	lstMessages.TwoLinesLayout.ItemHeight = 55dip
+	lblListFirst.TextSize = 14
+	lblListSecond.TextSize = 12
+	lblListFirst.TextColor = Colors.Black
+	lblListSecond.TextColor = Colors.Magenta
+
+	Activity.AddMenuItem( Texts.GetString(Texts.SelectLanguage) , "SelectLanguage")
+	Activity.Title = Texts.GetString(Texts.AppTitle)
+	
+	Dim tableCreated As Boolean
+	tableCreated = File.Exists(File.DirInternal, DB_NAME)
+	sqlite.Initialize( File.DirInternal, DB_NAME, True)
+	If tableCreated = False Then
+		sqlite.ExecNonQuery("create table " & DB_TBL_NAME & " ( " & DB_COL_NAME & _ 
+			" text not null, " & DB_COL_MSG & " text ) " )
+		'sqlite.ExecNonQuery2("create table ? (? integer primary key , ? text not null , ? text)",Array As Object(DB_COL_ID,DB_COL_NAME,DB_COL_MSG))	
+		ToastMessageShow(Texts.GetString(Texts.DatabaseInitializedReport), True)
+		
+	End If
+	
+	LoadPreviousMsgs
+	btHandler.Initialize("BluetoothHandler")
+	appTimer.Initialize("appTimer", 1000)
+	appTimer.Enabled = False
+	btConnected = False
+	
+End Sub
+
+Sub Activity_Resume
+	TryToConnect
+End Sub
+
+Sub BluetoothHandler_Connected(success As Boolean)
+	If success = True Then
+		txtReader.Initialize(btHandler.InputStream)
+		txtWriter.Initialize(btHandler.OutputStream)
+		appTimer.Enabled = True
+		btConnected = True
+		ToastMessageShow( Texts.GetString(Texts.ConnectedReport) ,False)
+		
+	Else
+		btConnected = False
+		appTimer.Enabled = False
+		ToastMessageShow(Texts.GetString(Texts.CantConnectToDeviceError),True)
+		
+	End If
+End Sub
+
+Sub appTimer_Tick
+	If btConnected = True And txtReader.Ready Then
+		Dim friensNewMsg As String
+		friensNewMsg = txtReader.ReadLine
+		lstMessages.AddTwoLines(Texts.StrTab & friensNewMsg,Texts.StrTab & Texts.FriendName)
+		'sqlite.ExecNonQuery2("insert into ? (?, ?) values (?, ?)",Array As Object(DB_TBL_NAME, DB_COL_NAME, DB_COL_MSG, Texts.GetString(Texts.FriendName), friensNewMsg))
+		sqlite.ExecNonQuery("insert into " & DB_TBL_NAME & " values ( '" & _
+					 Texts.GetString(Texts.FriendName) & "', '" & friensNewMsg & "')")
+	End If
+End Sub
+
+Sub Activity_Pause (UserClosed As Boolean)
+	If UserClosed And btHandler.IsEnabled And btConnected Then
+		DisconnectFriend
+	End If
+	
+End Sub
+
+Sub SelectLanguage_Click
+	ShowLanguagesList
+End Sub
+
+Sub btnSend_Click
+	If CheckTextIsCommand(txtMessage.Text) = False Then
+		If btConnected = True Then
+			Try
+				txtWriter.WriteLine(txtMessage.Text)
+			
+				lstMessages.AddTwoLines(Texts.StrTab & txtMessage.Text,Texts.StrTab & Texts.GetString(Texts.YourName))
+				'sqlite.ExecNonQuery2("INSERT INTO ? VALUES (?,?,?)",Array As Object(DB_TBL_NAME,currentId, Texts.GetString(Texts.YourName), txtMessage.Text))
+				sqlite.ExecNonQuery("insert into " & DB_TBL_NAME & " values ( '" & _
+					 Texts.GetString(Texts.YourName) & "', '" & txtMessage.Text & "')")
+				
+				txtWriter.Flush
+				txtMessage.Text = ""
+			Catch
+				ToastMessageShow( Texts.GetString(Texts.SendingWentWrongDisconnectingError) , False)
+				DisconnectFriend
+			End Try
+			
+		Else
+			TryToConnect
+			
+		End If
+	End If
+End Sub
+
+Sub btnSend_LongClick
+	DisconnectFriend
+End Sub
+
+Sub txtMessage_TextChanged (Old As String, New As String)
+	
+End Sub
+
+Sub lstMessages_ItemClick (Position As Int, Value As Object)
+	
+End Sub
